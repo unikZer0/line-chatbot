@@ -1,0 +1,37 @@
+version: "3.8"
+services:
+  firstbot:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    image: firstbot
+    environment:
+      NODE_ENV: development
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npx nodemon index.js 
+
+  ngrok:
+    image: ngrok/ngrok
+    command: http firstbot:3000
+    environment:
+      NGROK_AUTHTOKEN: 32MyLG2hQoq4xdbYNP4556OzEbl_7FK6diZzxRT5HKhmpQ9tY
+    ports:
+      - "4040:4040" 
+    depends_on:
+      - firstbot
+    restart: always 
+
+  mydb:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: linebotdb
+      POSTGRES_PASSWORD: linebotdb
+      POSTGRES_DB: linebotdb
+    ports:
+      - "5432:5432"
