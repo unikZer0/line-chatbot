@@ -35,12 +35,17 @@ const handleEvent = async (event) => {
   if (event.type === 'message' && event.message.type === 'text') {
     try {
       const userMessage = event.message.text;
-      const query = `*[_type == "message" && userMessage == "${userMessage}"]{ text }`;
+      const completion = await groqClient.chat.completions.create({
+        model: 'openai/gpt-oss-20b',
+        messages: [
+          { role: 'system', content: 'You are a friendly LINE chatbot. Keep replies concise and helpful.' },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.7,
+        max_tokens: 256,
+      });
 
-      const groqResponse = await groqClient.fetch(query);
-
-      console.log("Groq response:", groqResponse);
-      const replyText = (groqResponse[0]?.text) || "I don't have a response.";
+      const replyText = completion?.choices?.[0]?.message?.content?.trim() || "I don't have a response.";
 
       await client.replyMessage(event.replyToken, [
         { type: 'text', text: replyText }
