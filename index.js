@@ -30,39 +30,81 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
 });
 
 const handleEvent = async (event) => {
-  console.log("Handling event:", event);
+  if (event.type === "message" && event.message.type === "text") {
+    const userMessage = event.message.text;
 
-  if (event.type === 'message' && event.message.type === 'text') {
     try {
-      const userMessage = event.message.text;
+      const { rows } = await naturalQuery(userMessage);
+      const replyText = formatResult(rows);
+
+      await client.replyMessage(event.replyToken, [
+        { type: "text", text: replyText },
+      ]);
+    } catch (err) {
+      console.error("DB Query error:", err.message);
+
       const completion = await groqClient.chat.completions.create({
-        model: 'openai/gpt-oss-20b',
+        model: "llama3-8b-8192",
         messages: [
-          { role: 'system', content: 'You are a friendly LINE chatbot. Keep replies concise and helpful.' },
-          { role: 'user', content: userMessage }
+          { role: "system", content: "You are a friendly LINE chatbot." },
+          { role: "user", content: userMessage },
         ],
-        temperature: 0.7,
-        max_tokens: 256,
       });
 
-      const replyText = completion?.choices?.[0]?.message?.content?.trim() || "I don't have a response.";
+      const replyText =
+        completion?.choices?.[0]?.message?.content?.trim() ||
+        "Sorry, I couldn’t answer that.";
 
       await client.replyMessage(event.replyToken, [
-        { type: 'text', text: replyText }
-      ]);
-
-    } catch (err) {
-      console.error("Reply error:", err);
-      await client.replyMessage(event.replyToken, [
-        { type: 'text', text: "Sorry, something went wrong." }
+        { type: "text", text: replyText },
       ]);
     }
   }
-
-  return "null";
 };
 
+async function naturalQuery(userMessage) {
+  const completion = await groqClient.chat.completions.create({
+    model: "openai/gpt-oss-20b",
+    messages: [
+      {
+        role: "system",
+        content: `You are a PostgreSQL assistant. 
+        The database has a table "products(id, name, category, price, quantity)".
+        Convert the user request into a single SQL SELECT query.
+        Do NOT use DROP, DELETE, UPDATE, INSERT, or ALTER.`,
+      },
+      { role: "user", content: userMessage },
+    ],
+    temperature: 0,
+    max_tokens: 200,
+  });
 
+  const sql = completion?.choices?.[0]?.message?.content?.trim();
+  console.log("Generated SQL:", sql);
+
+  if (!sql.toLowerCase().startsWith("select")) {
+    throw new Error("Unsafe query blocked: " + sql);
+  }
+
+  const result = await pool.query(sql);
+  return { sql, rows: result.rows };
+}
+function formatResult(rows) {
+  if (!rows || rows.length === 0) {
+    return "No results found.";
+  }
+
+  if (rows.length === 1) {
+    const row = rows[0];
+    if (Object.keys(row).length === 1) {
+      return `Result: ${Object.values(row)[0]}`;
+    }
+    return JSON.stringify(row);
+  }
+  return rows
+    .map((r, i) => `${i + 1}. ${Object.values(r).join(" | ")}`)
+    .join("\n");
+}
 app.get('/hi', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
