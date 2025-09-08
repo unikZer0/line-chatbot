@@ -3,6 +3,7 @@ const line = require('@line/bot-sdk');
 const express = require('express');
 const axios = require('axios').default;
 const Groq = require('groq-sdk')
+const pool = require('./db')
 require('dotenv').config();
 
 const app = express();
@@ -44,7 +45,7 @@ const handleEvent = async (event) => {
       console.error("DB Query error:", err.message);
 
       const completion = await groqClient.chat.completions.create({
-        model: "llama3-8b-8192",
+        model: "openai/gpt-oss-20b",
         messages: [
           { role: "system", content: "You are a friendly LINE chatbot." },
           { role: "user", content: userMessage },
@@ -68,10 +69,10 @@ async function naturalQuery(userMessage) {
     messages: [
       {
         role: "system",
-        content: `You are a PostgreSQL assistant. 
+        content: `You are a PostgreSQL assistant.
         The database has a table "products(id, name, category, price, quantity)".
         Convert the user request into a single SQL SELECT query.
-        Do NOT use DROP, DELETE, UPDATE, INSERT, or ALTER.`,
+        Only use SELECT. Never use DROP, DELETE, UPDATE, INSERT, or ALTER.`,
       },
       { role: "user", content: userMessage },
     ],
@@ -89,22 +90,37 @@ async function naturalQuery(userMessage) {
   const result = await pool.query(sql);
   return { sql, rows: result.rows };
 }
+
 function formatResult(rows) {
   if (!rows || rows.length === 0) {
     return "No results found.";
   }
 
-  if (rows.length === 1) {
-    const row = rows[0];
-    if (Object.keys(row).length === 1) {
-      return `Result: ${Object.values(row)[0]}`;
-    }
-    return JSON.stringify(row);
-  }
   return rows
-    .map((r, i) => `${i + 1}. ${Object.values(r).join(" | ")}`)
+    .map((row, i) => {
+      const keys = Object.keys(row);
+      const values = Object.values(row);
+
+      if (keys.length === 1) {
+        if (keys[0].toLowerCase() === "price") {
+          return `${values[0]} USD`;
+        } else if (keys[0].toLowerCase() === "quantity") {
+          return `${values[0]} units`;
+        } else {
+          return `${keys[0]}: ${values[0]}`;
+        }
+      }
+      return keys
+        .map((key, idx) => {
+          if (key.toLowerCase() === "price") return `${values[idx]} USD`;
+          if (key.toLowerCase() === "quantity") return `${values[idx]} units`;
+          return values[idx];
+        })
+        .join(" | ");
+    })
     .join("\n");
 }
+
 app.get('/hi', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
